@@ -16,6 +16,7 @@ fotogal is a self-hosted, Immich-like photo gallery. Django REST Framework serve
 - `backend/foto/` — main Django app; put new models, serializers, views, and tasks here unless a new app is clearly justified.
 - `app/` — Flutter mobile client.
 - `docker/` — Docker Compose stack and Caddy config.
+- `onnx/` — model cache bind-mounted read-only; weights are gitignored.
 - `README.md` — human documentation. `LICENSE.md` — GPL-3.0.
 
 ## Fixed stack
@@ -28,9 +29,8 @@ Do not substitute these choices.
 - Database: PostgreSQL with PostGIS and pgvector extensions. This is the only database.
 - Cache: Valkey. Nothing else.
 - Blob storage: SeaweedFS for originals and thumbnails.
-- Embeddings: SigLIP via ONNX Runtime.
-- Faces: InsightFace with the `buffalo_l` model pack.
-- Captions: Moondream.
+- Embeddings: SigLIP 2 base patch16-384 via ONNX Runtime, 768-dimensional, int8.
+- Faces: InsightFace with the `buffalo_l` model pack, int8.
 - Mobile app: Flutter.
 - Orchestration: Docker Compose.
 
@@ -54,7 +54,10 @@ Compose and Flutter commands do not exist yet; add them here only once those dir
 - Store image bytes only in SeaweedFS. PostgreSQL holds metadata, EXIF, and vectors, never blobs.
 - Use Valkey only for cache and RabbitMQ only for task delivery.
 - Never switch settings or tests back to SQLite for production paths; PostgreSQL is the source of truth.
-- The embedding model and its output dimension are coupled. Changing the SigLIP model requires a re-embedding migration.
+- Use int8 ONNX weights for every model. Store the model name, revision, and precision with each vector.
+- Never mix precision between the SigLIP vision and text towers; index and query must use matching int8 exports.
+- Captioning and vision-language models are out of scope for this project.
+- The embedding model, precision, and output dimension are coupled. Changing any of them requires a re-embedding migration.
 - Route configuration through environment variables. Never commit secrets, model weights, or media.
 - Every model change includes a migration.
 - Keep new dependencies in `backend/pyproject.toml` via `uv add`, not hand-edited lockfiles.
@@ -65,7 +68,9 @@ Compose and Flutter commands do not exist yet; add them here only once those dir
 - Creating the `postgis` and `vector` extensions requires database privileges; enable them in a migration or init script.
 - pgvector needs an ANN index (HNSW or IVFFlat) and the distance operator must match the embedding normalization.
 - Normalize SigLIP embeddings the same way at index time and query time.
-- `buffalo_l` and Moondream are large downloads with their own licenses; never vendor them into the repo.
+- Quantized face detection and recognition shift confidence and distance distributions. Recalibrate detection and matching thresholds after moving from fp32 to int8.
+- `buffalo_l` weights are non-commercial research use; never vendor them into the repo or image.
+- int8 speeds up the CPU execution provider; some GPU providers dequantize or fall back. Benchmark before promising acceleration.
 - Caddy HTTP/3 needs UDP 443 open. Do not assume QUIC works everywhere.
 - Tailscale and public-domain deployments differ only in DNS and hostname configuration; avoid forking the stack per deployment.
 
